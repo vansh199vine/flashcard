@@ -51,7 +51,7 @@ function useTokens(theme) {
   const dark = theme === "dark";
   return {
     dark,
-    page: dark ? "bg-neutral-950" : "bg-neutral-50",
+    page: dark ? "bg-neutral-950" : "bg-pink-50",
     card: dark ? "bg-neutral-900 border border-neutral-800" : "bg-white border border-neutral-200",
     cardHover: dark
       ? "hover:border-neutral-700 hover:shadow-lg hover:shadow-black/40"
