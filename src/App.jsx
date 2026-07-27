@@ -1280,60 +1280,114 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({ active, dark }, ref) {
   );
 });
 
-/* ---------- Doodle ---------- */
+/* ---------- Doodle ----------
+   Generates an actual 8-bit sprite from a text prompt via the Stability
+   AI API (text-to-image, then a background-removal pass so it drops
+   onto the page as a transparent sprite instead of a white square),
+   and drops it onto the page as a free-floating, draggable image —
+   users can call this repeatedly to build up a scene the same way the
+   hand-placed T-Rex/helicopter sprites were built up in this app. */
+const STABILITY_KEY_STORAGE = "stability_api_key";
 
-// Keyword -> action, checked in order so more specific words win over
-// vaguer ones. Anything unmatched still gets a small idle bob, so the
-// doodle always does *something*.
-const DOODLE_ACTIONS = [
-  { action: "spin", keywords: ["spin", "twirl", "rotate", "circle"] },
-  { action: "jump", keywords: ["jump", "hop", "bounce", "leap"] },
-  { action: "dance", keywords: ["dance", "boogie", "groove", "party"] },
-  { action: "wave", keywords: ["wave", "hello", "hi", "greet"] },
-  { action: "walk", keywords: ["walk", "run", "pace", "stroll", "move"] },
-  { action: "sleep", keywords: ["sleep", "nap", "rest", "tired", "snooze"] },
-  { action: "shake", keywords: ["shake", "wiggle", "vibrate", "shiver"] },
-];
+async function generateSprite(prompt, apiKey) {
+  const genForm = new FormData();
+  genForm.append(
+    "prompt",
+    `${prompt}, pixel art, 8-bit video game sprite, centered, isolated on a plain white background, no shadow`
+  );
+  genForm.append("style_preset", "pixel-art");
+  genForm.append("output_format", "png");
+  genForm.append("aspect_ratio", "1:1");
 
-function matchDoodleAction(text) {
-  const q = text.toLowerCase();
-  for (const { action, keywords } of DOODLE_ACTIONS) {
-    if (keywords.some((k) => q.includes(k))) return action;
+  const genRes = await fetch("https://api.stability.ai/v2beta/stable-image/generate/core", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: "image/*" },
+    body: genForm,
+  });
+  if (!genRes.ok) {
+    const msg = await genRes.text().catch(() => "");
+    throw new Error(`Image generation failed (${genRes.status}): ${msg.slice(0, 200)}`);
   }
-  return "bob";
+  const genBlob = await genRes.blob();
+
+  // Background removal is a nice-to-have — if it fails, fall back to
+  // the raw generated image rather than losing the sprite entirely.
+  try {
+    const bgForm = new FormData();
+    bgForm.append("image", genBlob, "sprite.png");
+    bgForm.append("output_format", "png");
+    const bgRes = await fetch("https://api.stability.ai/v2beta/stable-image/edit/remove-background", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "image/*" },
+      body: bgForm,
+    });
+    if (!bgRes.ok) return URL.createObjectURL(genBlob);
+    return URL.createObjectURL(await bgRes.blob());
+  } catch {
+    return URL.createObjectURL(genBlob);
+  }
 }
 
 function DoodleModal({ theme, onSubmit, onClose }) {
   const t = useTokens(theme);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STABILITY_KEY_STORAGE) || "");
   const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const overlayBg = theme === "dark" ? "bg-black/80" : "bg-black/40";
   const border = theme === "dark" ? "border-neutral-800" : "border-neutral-200";
 
-  const submit = () => {
-    if (!text.trim()) return;
-    onSubmit(text.trim());
+  const submit = async () => {
+    if (!text.trim() || !apiKey.trim() || loading) return;
+    setError("");
+    setLoading(true);
+    localStorage.setItem(STABILITY_KEY_STORAGE, apiKey.trim());
+    try {
+      const imageUrl = await generateSprite(text.trim(), apiKey.trim());
+      onSubmit({ imageUrl, text: text.trim() });
+    } catch (err) {
+      setError(err.message || "Something went wrong generating that sprite.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-6 ${overlayBg}`} onClick={onClose}>
       <div className={`w-full max-w-sm rounded-3xl p-6 ${t.page} border ${border}`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className={`text-sm font-semibold ${t.body}`}>What should the doodle do?</h3>
+          <h3 className={`text-sm font-semibold ${t.body}`}>Generate an 8-bit sprite</h3>
           <button onClick={onClose} aria-label="Close" className={`rounded-full p-2 transition-colors duration-200 ${t.iconMuted}`}>
             <X size={15} />
           </button>
         </div>
+        <label className={`block text-xs font-medium mb-1.5 ${t.label}`}>Stability AI API key</label>
+        <Input
+          theme={theme}
+          type="password"
+          placeholder="sk-..."
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          className="mb-3"
+        />
+        <label className={`block text-xs font-medium mb-1.5 ${t.label}`}>What should it be?</label>
         <Input
           theme={theme}
           autoFocus
-          placeholder="e.g. dance, jump, wave, spin..."
+          placeholder="e.g. a sleeping cat, a rocket ship..."
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
+        {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
         <div className="flex justify-end mt-4">
-          <Button theme={theme} onClick={submit} className="rounded-xl px-5 py-2.5 text-sm">
-            Doodle it
+          <Button
+            theme={theme}
+            onClick={submit}
+            disabled={loading}
+            className="rounded-xl px-5 py-2.5 text-sm disabled:opacity-60"
+          >
+            {loading ? "Generating…" : "Generate"}
           </Button>
         </div>
       </div>
@@ -1341,35 +1395,8 @@ function DoodleModal({ theme, onSubmit, onClose }) {
   );
 }
 
-function DoodleSprite({ action, dark }) {
-  const ink = dark ? "#f5f5f5" : "#111111";
-  const bodyClass =
-    {
-      jump: "doodle-jump",
-      spin: "doodle-spin",
-      dance: "doodle-dance",
-      walk: "doodle-walk",
-      shake: "doodle-shake",
-      sleep: "doodle-sleep",
-    }[action] || "doodle-bob";
-
-  return (
-    <svg viewBox="0 0 40 60" width="40" height="60" style={{ overflow: "visible" }} className={bodyClass}>
-      <circle cx="20" cy="10" r="7" fill="none" stroke={ink} strokeWidth="2.2" />
-      <line x1="20" y1="17" x2="20" y2="38" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
-      <line x1="20" y1="38" x2="12" y2="55" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
-      <line x1="20" y1="38" x2="28" y2="55" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
-      <line x1="20" y1="22" x2="9" y2="30" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
-      <g transform="translate(20 22)" style={{ transformOrigin: "0px 0px" }} className={action === "wave" ? "doodle-wave-arm" : ""}>
-        <line x1="0" y1="0" x2="11" y2={action === "wave" ? -10 : 8} stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
-      </g>
-    </svg>
-  );
-}
-
-function DoodleDisplay({ doodle, theme, onClose }) {
-  const t = useTokens(theme);
-  const [pos, setPos] = useState({ x: 24, y: 96 });
+function DoodleDisplay({ doodle, onClose }) {
+  const [pos, setPos] = useState(() => ({ x: 24 + Math.random() * 60, y: 96 + Math.random() * 60 }));
   const [dragging, setDragging] = useState(false);
   const draggingRef = useRef(false);
   const offsetRef = useRef({ x: 0, y: 0 });
@@ -1398,11 +1425,16 @@ function DoodleDisplay({ doodle, theme, onClose }) {
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     >
-      <DoodleSprite action={doodle.action} dark={t.dark} />
+      <img
+        src={doodle.imageUrl}
+        alt={doodle.text}
+        draggable={false}
+        style={{ width: 96, height: 96, objectFit: "contain", imageRendering: "pixelated", userSelect: "none" }}
+      />
       <button
         onClick={onClose}
         onPointerDown={(e) => e.stopPropagation()}
-        aria-label="Dismiss doodle"
+        aria-label="Remove sprite"
         className="absolute -top-1.5 -right-1.5 rounded-full bg-black/70 text-white p-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
       >
         <X size={10} />
@@ -1427,7 +1459,7 @@ export default function App() {
   const [motionOn, setMotionOn] = useState(true);
   const [doodleModalOpen, setDoodleModalOpen] = useState(false);
   const [doodleMenuOpen, setDoodleMenuOpen] = useState(false);
-  const [doodle, setDoodle] = useState(null);
+  const [doodles, setDoodles] = useState([]);
   const [drawMode, setDrawMode] = useState(false);
   const drawCanvasRef = useRef(null);
   const toastTimeout = useRef(null);
@@ -1595,51 +1627,8 @@ export default function App() {
           50% { opacity: 0.7; transform: scaleX(0.85); }
         }
         .trex-flicker { animation: trexFlicker 0.12s steps(1) infinite; transform-origin: 24px 4px; }
-        @keyframes doodleBob {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-4px); }
-        }
-        @keyframes doodleJump {
-          0%, 100% { transform: translateY(0); }
-          35% { transform: translateY(-20px); }
-          55% { transform: translateY(-20px); }
-        }
-        @keyframes doodleSpin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes doodleDance {
-          0%, 100% { transform: rotate(-9deg) translateX(-3px); }
-          50% { transform: rotate(9deg) translateX(3px); }
-        }
-        @keyframes doodleWalk {
-          0%, 100% { transform: translateX(-10px); }
-          50% { transform: translateX(10px); }
-        }
-        @keyframes doodleShake {
-          0%, 100% { transform: translateX(0) rotate(0deg); }
-          25% { transform: translateX(-4px) rotate(-4deg); }
-          75% { transform: translateX(4px) rotate(4deg); }
-        }
-        @keyframes doodleSleep {
-          0%, 100% { transform: rotate(-82deg) scaleY(1); }
-          50% { transform: rotate(-82deg) scaleY(1.03); }
-        }
-        @keyframes doodleWave {
-          0%, 100% { transform: rotate(0deg); }
-          50% { transform: rotate(-55deg); }
-        }
-        .doodle-bob { animation: doodleBob 1.6s ease-in-out infinite; }
-        .doodle-jump { animation: doodleJump 0.9s ease-in-out infinite; }
-        .doodle-spin { animation: doodleSpin 1.1s linear infinite; }
-        .doodle-dance { animation: doodleDance 0.7s ease-in-out infinite; }
-        .doodle-walk { animation: doodleWalk 1.4s ease-in-out infinite; }
-        .doodle-shake { animation: doodleShake 0.35s ease-in-out infinite; }
-        .doodle-sleep { animation: doodleSleep 2.4s ease-in-out infinite; transform-origin: 50% 100%; }
-        .doodle-wave-arm { animation: doodleWave 0.6s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) {
-          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker,
-          .doodle-bob, .doodle-jump, .doodle-spin, .doodle-dance, .doodle-walk, .doodle-shake, .doodle-sleep, .doodle-wave-arm { animation: none; }
+          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker { animation: none; }
         }
       `}</style>
 
@@ -1828,13 +1817,19 @@ export default function App() {
         <DoodleModal
           theme={theme}
           onClose={() => setDoodleModalOpen(false)}
-          onSubmit={(text) => {
-            setDoodle({ action: matchDoodleAction(text), text });
+          onSubmit={(result) => {
+            setDoodles((prev) => [...prev, { id: Date.now() + Math.random(), ...result }]);
             setDoodleModalOpen(false);
           }}
         />
       )}
-      {doodle && <DoodleDisplay doodle={doodle} theme={theme} onClose={() => setDoodle(null)} />}
+      {doodles.map((d) => (
+        <DoodleDisplay
+          key={d.id}
+          doodle={d}
+          onClose={() => setDoodles((prev) => prev.filter((x) => x.id !== d.id))}
+        />
+      ))}
       <DrawingCanvas ref={drawCanvasRef} active={drawMode} dark={t.dark} />
       {motionOn && (
         <>
