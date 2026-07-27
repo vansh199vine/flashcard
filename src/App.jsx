@@ -1599,18 +1599,44 @@ function DoodleSprite({ action, dark }) {
 
 function DoodleDisplay({ doodle, theme, onClose }) {
   const t = useTokens(theme);
+  const [pos, setPos] = useState({ x: 24, y: 96 });
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const offsetRef = useRef({ x: 0, y: 0 });
+
+  const startDrag = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    setDragging(true);
+    offsetRef.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+  };
+  const onDrag = (e) => {
+    if (!draggingRef.current) return;
+    setPos({ x: e.clientX - offsetRef.current.x, y: e.clientY - offsetRef.current.y });
+  };
+  const endDrag = () => {
+    draggingRef.current = false;
+    setDragging(false);
+  };
+
   return (
-    <div className="fixed top-24 left-6 z-40 flex flex-col items-center gap-1.5" style={{ pointerEvents: "none" }}>
+    <div
+      className="fixed z-40 group"
+      style={{ left: pos.x, top: pos.y, touchAction: "none", cursor: dragging ? "grabbing" : "grab" }}
+      onPointerDown={startDrag}
+      onPointerMove={onDrag}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
       <DoodleSprite action={doodle.action} dark={t.dark} />
-      <div
-        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${t.card}`}
-        style={{ pointerEvents: "auto" }}
+      <button
+        onClick={onClose}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label="Dismiss doodle"
+        className="absolute -top-1.5 -right-1.5 rounded-full bg-black/70 text-white p-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
       >
-        <span className={t.muted}>{doodle.text}</span>
-        <button onClick={onClose} aria-label="Dismiss doodle" className="opacity-60 hover:opacity-100">
-          <X size={11} />
-        </button>
-      </div>
+        <X size={10} />
+      </button>
     </div>
   );
 }
