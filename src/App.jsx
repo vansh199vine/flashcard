@@ -1282,11 +1282,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({ active, dark }, ref) {
 
 /* ---------- Doodle ----------
    Generates an actual 8-bit sprite from a text prompt via the Stability
-   AI API (text-to-image, then a background-removal pass so it drops
-   onto the page as a transparent sprite instead of a white square),
-   and drops it onto the page as a free-floating, draggable image —
-   users can call this repeatedly to build up a scene the same way the
-   hand-placed T-Rex/helicopter sprites were built up in this app. */
+   AI API (text-to-image styled as pixel art, then a background-removal
+   pass so it drops onto the page as a transparent sprite instead of a
+   white square), and drops it onto the page as a free-floating,
+   draggable image — users can call this repeatedly to build up a
+   scene. The API key is entered by the user and kept in this browser's
+   localStorage only. */
 const STABILITY_KEY_STORAGE = "stability_api_key";
 
 async function generateSprite(prompt, apiKey) {
@@ -1374,7 +1375,7 @@ function DoodleModal({ theme, onSubmit, onClose }) {
         <Input
           theme={theme}
           autoFocus
-          placeholder="e.g. a sleeping cat, a rocket ship..."
+          placeholder="e.g. a red dragon, a blue robot..."
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -1396,7 +1397,13 @@ function DoodleModal({ theme, onSubmit, onClose }) {
 }
 
 function DoodleDisplay({ doodle, onClose }) {
-  const [pos, setPos] = useState(() => ({ x: 24 + Math.random() * 60, y: 96 + Math.random() * 60 }));
+  // Spawn near the bottom-left, well clear of the title regardless of
+  // viewport size, rather than a fixed top-of-page spot every sprite
+  // would otherwise pile up on.
+  const [pos, setPos] = useState(() => ({
+    x: 24 + Math.random() * 140,
+    y: Math.max(140, window.innerHeight - 200 + Math.random() * 60),
+  }));
   const [dragging, setDragging] = useState(false);
   const draggingRef = useRef(false);
   const offsetRef = useRef({ x: 0, y: 0 });
