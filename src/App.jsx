@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
 import { Search, Moon, Sun, MoreVertical, Check, Bold, Italic, Underline, Highlighter, Trash2, X, Shuffle, Plus, ChevronDown, PauseCircle, PlayCircle, PenLine } from "lucide-react";
 
 /* ------------------------------------------------------------------
@@ -625,455 +625,10 @@ function QuizModal({ cards, scopeLabel, theme, onClose }) {
   );
 }
 
-/* A small original silhouette "agent" who only ever stands on real,
-   visible elements — the form panel, individual flashcards as they're
-   added, the search box, the quiz button, the theme toggle — never on
-   blank page background. Each stop is measured live via
-   getBoundingClientRect, and he always moves to whichever corner of
-   the next element is nearest, so a jump never lands somewhere with
-   nothing to grab. Moving across one element's own top edge is a run;
-   moving to a different element has a real gap, so that's played as a
-   crouch, a liftoff, an arc with a hang at the peak, and a
-   grab-the-ledge landing — not a slide across empty space. */
-const AGENT_W = 46;
-const AGENT_H = 66;
-const AGENT_SPEED = 0.2; // px per ms, run segments only — an easy jog
-const AGENT_MIN_MS = 1200;
-const AGENT_MAX_MS = 3000;
-
-// Each pose is a set of joint angles: torso lean, two arms (shoulder
-// only), and two legs (hip thigh + knee shin) for a bent-knee look.
-const AGENT_POSES = {
-  idle: {
-    torso: 0,
-    armA: 0,
-    armB: 0,
-    legA: { thigh: 0, shin: 0 },
-    legB: { thigh: 0, shin: 0 },
-  },
-  runA: {
-    torso: 8,
-    armA: -30,
-    armB: 26,
-    legA: { thigh: -34, shin: 20 },
-    legB: { thigh: 30, shin: -12 },
-  },
-  runMid: {
-    torso: 6,
-    armA: -6,
-    armB: 6,
-    legA: { thigh: -4, shin: 26 },
-    legB: { thigh: 6, shin: -6 },
-  },
-  runB: {
-    torso: 8,
-    armA: 26,
-    armB: -30,
-    legA: { thigh: 30, shin: -12 },
-    legB: { thigh: -34, shin: 20 },
-  },
-  crouch: {
-    torso: -7,
-    armA: 46,
-    armB: 50,
-    legA: { thigh: 56, shin: 32 },
-    legB: { thigh: 52, shin: 28 },
-  },
-  liftoff: {
-    torso: 5,
-    armA: -78,
-    armB: -86,
-    legA: { thigh: -62, shin: 14 },
-    legB: { thigh: 26, shin: 54 },
-  },
-  jump: {
-    torso: 13,
-    armA: -112,
-    armB: -122,
-    legA: { thigh: 92, shin: 42 },
-    legB: { thigh: 105, shin: 36 },
-  },
-  grab: {
-    torso: -4,
-    armA: 170,
-    armB: 164,
-    legA: { thigh: -52, shin: -36 },
-    legB: { thigh: -62, shin: -30 },
-  },
-  impact: {
-    torso: 3,
-    armA: 68,
-    armB: 74,
-    legA: { thigh: 62, shin: 40 },
-    legB: { thigh: -60, shin: -38 },
-  },
-  stretch: {
-    torso: -13,
-    armA: -172,
-    armB: -166,
-    legA: { thigh: 6, shin: -4 },
-    legB: { thigh: -6, shin: 4 },
-  },
-  sit: {
-    torso: 4,
-    armA: 18,
-    armB: 22,
-    legA: { thigh: 86, shin: -78 },
-    legB: { thigh: 82, shin: -74 },
-  },
-  danceA: {
-    torso: -11,
-    armA: -150,
-    armB: 62,
-    legA: { thigh: 22, shin: -16 },
-    legB: { thigh: -18, shin: 12 },
-  },
-  danceB: {
-    torso: 11,
-    armA: 62,
-    armB: -150,
-    legA: { thigh: -18, shin: 12 },
-    legB: { thigh: 22, shin: -16 },
-  },
-};
-
-function AgentSprite({ pose, dark }) {
-  const p = AGENT_POSES[pose] || AGENT_POSES.idle;
-  const ink = dark ? "#f5f5f5" : "#111111";
-  const mid = dark ? "#c2c2c2" : "#2c2c2c";
-  const back = dark ? "#8a8a8a" : "#4b4b4b";
-  const glint = dark ? "#111111" : "#e8e8e8";
-
-  const Leg = ({ hipX, thigh, shin, fill }) => (
-    <g transform={`rotate(${thigh} ${hipX} 29)`}>
-      <rect x={hipX - 2} y="29" width="4" height="9" rx="2" fill={fill} />
-      <g transform={`rotate(${shin} ${hipX} 38)`}>
-        <rect x={hipX - 1.8} y="38" width="3.6" height="9" rx="1.8" fill={fill} />
-        <rect x={hipX - 2.4} y="46" width="5.4" height="2.2" rx="1.1" fill={fill} />
-      </g>
-    </g>
-  );
-
-  const Arm = ({ shoulderX, angle, fill }) => (
-    <g transform={`rotate(${angle} ${shoulderX} 15)`}>
-      <rect x={shoulderX - 1.75} y="15" width="3.5" height="9" rx="1.75" fill={fill} />
-      <circle cx={shoulderX} cy="25.5" r="2.1" fill={fill} />
-    </g>
-  );
-
-  return (
-    <svg viewBox="0 0 32 50" width={AGENT_W} height={AGENT_H}>
-      <Leg hipX={19} thigh={p.legB.thigh} shin={p.legB.shin} fill={back} />
-      <Leg hipX={13} thigh={p.legA.thigh} shin={p.legA.shin} fill={ink} />
-      <g transform={`rotate(${p.torso} 16 20)`}>
-        <rect x="11" y="13" width="10" height="15" rx="4" fill={ink} />
-        <rect x="11" y="13" width="10" height="2.2" rx="1.1" fill={mid} />
-        <rect x="11.5" y="25.5" width="9" height="2" rx="1" fill={mid} />
-      </g>
-      <Arm shoulderX={21} angle={p.armB} fill={back} />
-      <Arm shoulderX={11} angle={p.armA} fill={ink} />
-      <rect x="14" y="10.5" width="4" height="3.5" fill={ink} />
-      <circle cx="16" cy="7" r="6" fill={ink} />
-      <rect x="12" y="5.3" width="8" height="2.6" rx="1.3" fill={glint} />
-    </svg>
-  );
-}
-
-function RunningAgent({ formBoxRef, searchBoxRef, quizButtonRef, themeButtonRef, theme, positionRef }) {
-  const dark = theme === "dark";
-  const [pos, setPos] = useState({ x: -80, y: 40 });
-  const [facingLeft, setFacingLeft] = useState(false);
-  const [animState, setAnimState] = useState("idle");
-  const [transitionMs, setTransitionMs] = useState(0);
-  const [easing, setEasing] = useState("cubic-bezier(0.4, 0, 0.2, 1)");
-  const [resting, setResting] = useState(false);
-  const posRef = useRef(pos);
-  const busyRef = useRef(false);
-  const currentAnchorRef = useRef(null);
-  posRef.current = pos;
-  if (positionRef) positionRef.current = pos;
-
-  useEffect(() => {
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
-
-    let cancelled = false;
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-    const distance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
-
-    // Only ever the two corners of a real element's own top edge —
-    // never a point out in blank page background — and always
-    // whichever of those two is actually closer to where he is now.
-    const nearestCorner = (rect, from) => {
-      const inset = 10;
-      const leftPt = { x: rect.left + inset, y: rect.top - AGENT_H + 14 };
-      const rightPt = { x: rect.right - AGENT_W - inset, y: rect.top - AGENT_H + 14 };
-      const dl = distance(from, leftPt);
-      const dr = distance(from, rightPt);
-      return dl <= dr ? { near: leftPt, far: rightPt } : { near: rightPt, far: leftPt };
-    };
-
-    // Rebuilt on every stop so flashcards that get added or removed
-    // mid-session are picked up right away.
-    const getBoxes = () => {
-      const boxes = [];
-      if (formBoxRef.current) boxes.push(formBoxRef.current);
-      boxes.push(...document.querySelectorAll('[data-agent-card="true"]'));
-      if (searchBoxRef.current) boxes.push(searchBoxRef.current);
-      if (quizButtonRef.current) boxes.push(quizButtonRef.current);
-      if (themeButtonRef.current) boxes.push(themeButtonRef.current);
-      return boxes;
-    };
-
-    const face = (from, to) => {
-      if (to.x < from.x - 2) setFacingLeft(true);
-      else if (to.x > from.x + 2) setFacingLeft(false);
-    };
-
-    // Perched between moves he doesn't just freeze — he glances around,
-    // stretches, ducks down, breaks into a little dance, or sits down on
-    // the ledge for a rest, picked at random each stop so he never
-    // repeats the same beat twice in a row.
-    const lookAround = async (totalMs) => {
-      setResting(true);
-      const roll = Math.random();
-
-      if (roll < 0.3) {
-        // Glance side to side.
-        const glance = Math.min(450, totalMs / 4);
-        const hold = Math.max(0, (totalMs - glance * 2) / 2);
-        await sleep(hold);
-        if (cancelled) return;
-        setFacingLeft(true);
-        await sleep(glance);
-        if (cancelled) return;
-        setFacingLeft(false);
-        await sleep(glance);
-        if (cancelled) return;
-        await sleep(hold);
-      } else if (roll < 0.5) {
-        // A full-body stretch, like he's shaking out the last landing.
-        const pre = totalMs * 0.35;
-        const hold = Math.min(650, totalMs * 0.3);
-        await sleep(pre);
-        if (cancelled) return;
-        setAnimState("stretch");
-        await sleep(hold);
-        if (cancelled) return;
-        setAnimState("idle");
-        await sleep(Math.max(0, totalMs - pre - hold));
-      } else if (roll < 0.65) {
-        // A quick curious duck, like something below caught his eye.
-        const pre = totalMs * 0.4;
-        const dip = 260;
-        await sleep(pre);
-        if (cancelled) return;
-        setAnimState("crouch");
-        await sleep(dip);
-        if (cancelled) return;
-        setAnimState("idle");
-        await sleep(Math.max(0, totalMs - pre - dip));
-      } else if (roll < 0.85) {
-        // A little celebratory dance, arms and hips swapping sides.
-        const pre = totalMs * 0.3;
-        await sleep(pre);
-        if (cancelled) return;
-        const beats = 5;
-        for (let i = 0; i < beats; i++) {
-          setAnimState(i % 2 === 0 ? "danceA" : "danceB");
-          await sleep(200);
-          if (cancelled) return;
-        }
-        setAnimState("idle");
-        await sleep(Math.max(0, totalMs - pre - beats * 200));
-      } else {
-        // Sits down on the ledge for a proper rest before moving on.
-        const pre = totalMs * 0.25;
-        const sitFor = Math.max(500, totalMs * 0.5);
-        await sleep(pre);
-        if (cancelled) return;
-        setAnimState("sit");
-        await sleep(sitFor);
-        if (cancelled) return;
-        setAnimState("idle");
-        await sleep(Math.max(0, totalMs - pre - sitFor));
-      }
-    };
-
-    const glideTo = async (to, ms, ease, pose) => {
-      const from = posRef.current;
-      face(from, to);
-      setEasing(ease);
-      setTransitionMs(ms);
-      setAnimState(pose);
-      setPos(to);
-      await sleep(ms);
-    };
-
-    const runSegment = async (targetGetter) => {
-      busyRef.current = true;
-      setResting(false);
-      const to = targetGetter();
-      const from = posRef.current;
-      face(from, to);
-      // A quick coiled beat before he takes off, not a standing start.
-      setAnimState("crouch");
-      await sleep(110);
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      const ms = clamp(distance(from, to) / AGENT_SPEED, AGENT_MIN_MS, AGENT_MAX_MS);
-      await glideTo(to, ms, "cubic-bezier(0.45, 0, 0.15, 1)", "run");
-      if (!cancelled) setAnimState("idle");
-      busyRef.current = false;
-    };
-
-    // A real gap between elements gets a crouch, an explosive liftoff,
-    // a two-leg arc that rises, hangs for a beat at the peak, then
-    // falls, a squashed impact beat, and a grab-the-ledge landing —
-    // not a slide through space.
-    const jumpSegment = async (targetGetter) => {
-      busyRef.current = true;
-      setResting(false);
-      const to = targetGetter();
-      const from = posRef.current;
-      setAnimState("crouch");
-      face(from, to);
-      await sleep(300);
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      setAnimState("liftoff");
-      await sleep(150);
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      const peak = { x: (from.x + to.x) / 2, y: Math.min(from.y, to.y) - 44 };
-      await glideTo(peak, 400, "cubic-bezier(0.3, 0.9, 0.6, 1)", "jump");
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      await sleep(60); // brief hang at the top of the arc
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      await glideTo(to, 400, "cubic-bezier(0.4, 0, 0.7, 0.3)", "jump");
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      setAnimState("impact");
-      await sleep(90);
-      if (cancelled) {
-        busyRef.current = false;
-        return;
-      }
-      setAnimState("grab");
-      await sleep(360);
-      if (!cancelled) setAnimState("idle");
-      busyRef.current = false;
-    };
-
-    const visitBox = async (el) => {
-      const rect = el.getBoundingClientRect();
-      const { near, far } = nearestCorner(rect, posRef.current);
-      await jumpSegment(() => near);
-      if (cancelled) return;
-      if (distance(near, far) > 40) {
-        await runSegment(() => far);
-        if (cancelled) return;
-      }
-      await lookAround(2400 + Math.random() * 1200);
-    };
-
-    const loop = async () => {
-      await sleep(700);
-      let boxIndex = 0;
-      while (!cancelled) {
-        const boxes = getBoxes();
-        if (boxes.length === 0) {
-          await sleep(600);
-          continue;
-        }
-        boxIndex = boxIndex % boxes.length;
-        const el = boxes[boxIndex];
-        currentAnchorRef.current = () => nearestCorner(el.getBoundingClientRect(), posRef.current).near;
-        await visitBox(el);
-        if (cancelled) return;
-        boxIndex += 1;
-      }
-    };
-
-    loop();
-
-    let ticking = false;
-    const resync = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        ticking = false;
-        if (busyRef.current || !currentAnchorRef.current) return;
-        setTransitionMs(0);
-        setPos(currentAnchorRef.current());
-      });
-    };
-    window.addEventListener("scroll", resync, { passive: true });
-    window.addEventListener("resize", resync);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener("scroll", resync);
-      window.removeEventListener("resize", resync);
-    };
-  }, [formBoxRef, searchBoxRef, quizButtonRef, themeButtonRef]);
-
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "fixed",
-        left: pos.x,
-        top: pos.y,
-        width: AGENT_W,
-        height: AGENT_H,
-        zIndex: 45,
-        pointerEvents: "none",
-        transform: facingLeft ? "scaleX(-1)" : "scaleX(1)",
-        transition: transitionMs === 0 ? "none" : `left ${transitionMs}ms ${easing}, top ${transitionMs}ms ${easing}`,
-      }}
-    >
-      <div className={`agent-body ${resting ? "agent-breathe" : ""}`}>
-        {animState === "run" ? (
-          <>
-            <div className="agent-pose run-cycle-a">
-              <AgentSprite pose="runA" dark={dark} />
-            </div>
-            <div className="agent-pose run-cycle-mid">
-              <AgentSprite pose="runMid" dark={dark} />
-            </div>
-            <div className="agent-pose run-cycle-b">
-              <AgentSprite pose="runB" dark={dark} />
-            </div>
-          </>
-        ) : (
-          <div className="agent-pose">
-            <AgentSprite pose={animState} dark={dark} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* A tiny 8-bit dinosaur that lives only on the "New flashcard" box,
-   pacing back and forth within its width at a slow, constant wander —
-   it doesn't react to the running agent at all — breathing a small
-   burst of fire out on its own timer every so often. */
+   pacing back and forth within its width at a slow, constant wander,
+   periodically charging up and firing a blue beam at whichever
+   helicopter it picks as a target. */
 const TREX_W = 94;
 const TREX_H = 58;
 const TREX_WANDER_SPEED = 0.02; // px per ms — slow, constant, no chasing
@@ -1139,17 +694,19 @@ function TRexSprite({ legPhase, dark, breathing }) {
   );
 }
 
-/* Roams the "New flashcard" box on its own, slow and constant, never
-   reacting to the running agent — no chasing, just a small breath of
-   8-bit fire every so often, out on its own timer. */
-function TRexPet({ formBoxRef, positionRef, theme }) {
+/* Roams the "New flashcard" box on its own, slow and constant, and
+   every so often charges up and fires a blue atomic beam at one of
+   the two helicopters (whichever one is currently airborne). */
+function TRexPet({ formBoxRef, positionRef, theme, heliARef, heliBRef, headerRef }) {
   const dark = theme === "dark";
   const [x, setX] = useState(20);
   const [y, setY] = useState(0);
   const [facingLeft, setFacingLeft] = useState(false);
   const [legPhase, setLegPhase] = useState(false);
   const [breathing, setBreathing] = useState(false);
+  const [beam, setBeam] = useState(null);
   const xRef = useRef(20);
+  const yRef = useRef(0);
   const dirRef = useRef(1);
 
   useEffect(() => {
@@ -1176,6 +733,7 @@ function TRexPet({ formBoxRef, positionRef, theme }) {
 
       xRef.current = Math.min(maxX, Math.max(minX, xRef.current + dirRef.current * TREX_WANDER_SPEED * dt));
       const trexY = rect.top - TREX_H + 8;
+      yRef.current = trexY;
 
       setX(xRef.current);
       setY(trexY);
@@ -1193,40 +751,102 @@ function TRexPet({ formBoxRef, positionRef, theme }) {
 
   useEffect(() => {
     if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+    if (!heliARef && !heliBRef) return undefined;
     let cancelled = false;
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // A helicopter counts as a valid target once it's actually flying —
+    // both start parked at a y of -80 before their first pass.
+    const pickTarget = () => {
+      const candidates = [heliARef?.current, heliBRef?.current].filter((p) => p && p.y > -40);
+      if (candidates.length === 0) return null;
+      return candidates[Math.floor(Math.random() * candidates.length)];
+    };
+
+    // The title must never be blocked by anything — including a beam
+    // passing behind it — so a shot that would cross the header rect
+    // is simply skipped rather than fired.
+    const crossesHeader = (x1, y1, x2, y2) => {
+      const rect = headerRef?.current?.getBoundingClientRect();
+      if (!rect) return false;
+      const pad = 8;
+      const left = rect.left - pad;
+      const right = rect.right + pad;
+      const top = rect.top - pad;
+      const bottom = rect.bottom + pad;
+      for (let i = 0; i <= 20; i++) {
+        const t = i / 20;
+        const x = x1 + (x2 - x1) * t;
+        const y = y1 + (y2 - y1) * t;
+        if (x >= left && x <= right && y >= top && y <= bottom) return true;
+      }
+      return false;
+    };
+
     const loop = async () => {
-      await sleep(3500 + Math.random() * 4000);
+      await sleep(4000 + Math.random() * 4000);
       while (!cancelled) {
-        setBreathing(true);
-        await sleep(800 + Math.random() * 500);
-        if (cancelled) return;
-        setBreathing(false);
-        await sleep(4500 + Math.random() * 5000);
+        // Each time it attacks, randomly do one or the other — never
+        // both together, and never the same fixed fire-then-beam order.
+        const target = Math.random() < 0.5 ? pickTarget() : null;
+        if (target) {
+          // Aim assist: turn to face the target's side before firing,
+          // then fire from the center of whichever side is now facing
+          // outward, straight at the target's exact center.
+          dirRef.current = target.x >= xRef.current ? 1 : -1;
+          const facingLeftNow = dirRef.current < 0;
+          const originX = facingLeftNow ? xRef.current + TREX_W * 0.12 : xRef.current + TREX_W * 0.88;
+          const originY = yRef.current + TREX_H * 0.16;
+          const targetX = target.x + HELI_W / 2;
+          const targetY = target.y + HELI_H / 2;
+          if (!crossesHeader(originX, originY, targetX, targetY)) {
+            setBeam({ x1: originX, y1: originY, x2: targetX, y2: targetY });
+            await sleep(400 + Math.random() * 200);
+            if (cancelled) return;
+            setBeam(null);
+          }
+        } else {
+          setBreathing(true);
+          await sleep(600 + Math.random() * 400);
+          if (cancelled) return;
+          setBreathing(false);
+        }
+        await sleep(6000 + Math.random() * 5000);
       }
     };
     loop();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [heliARef, heliBRef]);
 
   return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "fixed",
-        left: x,
-        top: y,
-        width: TREX_W,
-        height: TREX_H,
-        zIndex: 44,
-        pointerEvents: "none",
-        transform: facingLeft ? "scaleX(-1)" : "scaleX(1)",
-      }}
-    >
-      <TRexSprite legPhase={legPhase} dark={dark} breathing={breathing} />
-    </div>
+    <>
+      {beam && (
+        <svg
+          aria-hidden="true"
+          style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", pointerEvents: "none", zIndex: 45 }}
+        >
+          <line x1={beam.x1} y1={beam.y1} x2={beam.x2} y2={beam.y2} stroke="#3aa0ff" strokeWidth="9" opacity="0.35" strokeLinecap="round" />
+          <line x1={beam.x1} y1={beam.y1} x2={beam.x2} y2={beam.y2} stroke="#8fe0ff" strokeWidth="4" opacity="0.95" strokeLinecap="round" />
+        </svg>
+      )}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed",
+          left: x,
+          top: y,
+          width: TREX_W,
+          height: TREX_H,
+          zIndex: 44,
+          pointerEvents: "none",
+          transform: facingLeft ? "scaleX(-1)" : "scaleX(1)",
+        }}
+      >
+        <TRexSprite legPhase={legPhase} dark={dark} breathing={breathing} />
+      </div>
+    </>
   );
 }
 
@@ -1270,10 +890,12 @@ function Helicopter({
   const dark = theme === "dark";
   const [pos, setPos] = useState({ x: -80, y: -80 });
   const [bank, setBank] = useState(0);
+  const [facingRight, setFacingRight] = useState(false);
   const [visible, setVisible] = useState(false);
   const [trail, setTrail] = useState([]);
   const [laser, setLaser] = useState(null);
   const posRef = useRef(pos);
+  const dirXRef = useRef(-1);
   posRef.current = pos;
   if (selfPosRef) selfPosRef.current = pos;
 
@@ -1283,6 +905,9 @@ function Helicopter({
     let cancelled = false;
     let raf;
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Eased in/out rather than snapped on, so the bank angle never
+    // introduces a sudden jump.
+    const bankState = { current: 0 };
 
     // Catmull-Rom: a smooth curve that actually passes through every
     // waypoint, so the flight has no straight-line kinks at the joins.
@@ -1313,11 +938,16 @@ function Helicopter({
 
     // A fresh irregular set of waypoints, continuing on from wherever it
     // already is (no teleporting back to the edge), resampling a
-    // candidate point a few times if it lands inside a guarded rect.
+    // candidate point a few times if it lands inside a guarded rect or
+    // too near the other helicopter's current spot. Avoidance is baked
+    // into the waypoints themselves — the flight afterward just follows
+    // the resulting spline with nothing pushing on it mid-flight, so the
+    // curve itself never gets bent into a straight line or a loop.
     const buildPath = (from, guards, ceilingY) => {
       // The full page width, not just a corner — it flies edge to edge.
       const minX = -80;
       const maxX = window.innerWidth + 80;
+      const other = otherPosRef?.current;
       const points = [from];
       const legs = 3 + Math.floor(Math.random() * 2);
       let curX = from.x;
@@ -1328,12 +958,13 @@ function Helicopter({
         for (let tries = 0; tries < 10; tries++) {
           const atLeftEdge = curX < minX + 80;
           const atRightEdge = curX > maxX - 80;
-          const dir = atLeftEdge ? 1 : atRightEdge ? -1 : Math.random() < 0.12 ? -1 : 1;
+          const dir = atLeftEdge ? 1 : atRightEdge ? -1 : Math.random() < 0.08 ? -1 : 1;
           x = Math.max(minX, Math.min(maxX, curX + dir * (160 + Math.random() * 220)));
           // A gentle drift from the current height rather than a fresh
           // random pick each leg, so the curve doesn't zigzag vertically.
           y = Math.max(20, Math.min(ceilingY, curY + (Math.random() - 0.5) * 70));
-          if (clearOf(guards, x, y)) break;
+          const nearOther = other && Math.hypot(x - other.x, y - other.y) < HELI_MIN_GAP;
+          if (clearOf(guards, x, y) && !nearOther) break;
         }
         curY = y;
         points.push({ x, y });
@@ -1346,15 +977,38 @@ function Helicopter({
     // per-leg resets — with position driven every frame from real
     // elapsed time (not CSS transitions), so whatever samples it for the
     // trail is always the true on-screen spot, dashes laid one at a time.
+    const CRUISE_SPEED = 0.07; // px per ms — constant, so long legs just take longer
+
     const flyCurve = (from) =>
       new Promise((resolve) => {
         const { guards, ceilingY } = getGuards();
         const pts = buildPath(from, guards, ceilingY);
         const segs = pts.length - 1;
-        const msPerSeg = 3000 + Math.random() * 1600; // slow
-        const totalMs = segs * msPerSeg;
-        const start = performance.now();
         const at = (i) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+
+        // Segment duration is proportional to its own length, at one
+        // constant cruising speed — no more implicit speed-up/slow-down
+        // between a short leg and a long one.
+        const segMs = [];
+        for (let i = 0; i < segs; i++) {
+          const d = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+          segMs.push(Math.max(900, d / CRUISE_SPEED));
+        }
+        const segStart = [0];
+        segMs.forEach((m) => segStart.push(segStart[segStart.length - 1] + m));
+        const totalMs = segStart[segStart.length - 1];
+        const start = performance.now();
+
+        // Shared by both the current position and the lookahead sample
+        // below, so the lookahead can cross into the next segment
+        // instead of flattening out against the end of the current one.
+        const sampleAt = (ms) => {
+          const clamped = Math.max(0, Math.min(totalMs, ms));
+          let seg = 0;
+          while (seg < segs - 1 && clamped >= segStart[seg + 1]) seg++;
+          const t = (clamped - segStart[seg]) / segMs[seg];
+          return catmullRom(at(seg - 1), at(seg), at(seg + 1), at(seg + 2), t);
+        };
 
         const tick = (now) => {
           if (cancelled) {
@@ -1366,29 +1020,22 @@ function Helicopter({
             resolve(pts[pts.length - 1]);
             return;
           }
-          const u = (elapsed / totalMs) * segs;
-          const seg = Math.min(segs - 1, Math.floor(u));
-          const t = u - seg;
-          let next = catmullRom(at(seg - 1), at(seg), at(seg + 1), at(seg + 2), t);
-
-          // Never let the two helicopters touch: push directly away from
-          // the other one if it's currently closer than the minimum gap.
-          const other = otherPosRef?.current;
-          if (other) {
-            const dx = next.x - other.x;
-            const dy = next.y - other.y;
-            const dist = Math.hypot(dx, dy) || 0.001;
-            if (dist < HELI_MIN_GAP) {
-              const push = HELI_MIN_GAP - dist;
-              next = { x: next.x + (dx / dist) * push, y: next.y + (dy / dist) * push };
-            }
-          }
-
-          const ahead = catmullRom(at(seg - 1), at(seg), at(seg + 1), at(seg + 2), Math.min(1, t + 0.02));
+          const next = sampleAt(elapsed);
+          const ahead = sampleAt(elapsed + 90);
           setPos(next);
           posRef.current = next;
           if (selfPosRef) selfPosRef.current = next;
-          setBank(Math.max(-16, Math.min(16, (ahead.x - next.x) * 26)));
+          const dx = ahead.x - next.x;
+          // Small deadzone so near-vertical moments don't flicker the
+          // sprite's facing back and forth.
+          if (Math.abs(dx) > 0.5) {
+            const goingRight = dx > 0;
+            dirXRef.current = goingRight ? 1 : -1;
+            setFacingRight(goingRight);
+          }
+          const targetBank = Math.max(-16, Math.min(16, dx * 26));
+          bankState.current += (targetBank - bankState.current) * 0.1;
+          setBank(bankState.current);
           raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
@@ -1429,7 +1076,15 @@ function Helicopter({
         const trex = trexPosRef.current;
         const from = posRef.current;
         if (trex && from) {
-          setLaser({ x1: from.x + HELI_W / 2, y1: from.y + HELI_H - 2, x2: trex.x + 32, y2: trex.y + 20 });
+          // Fires from whichever side is currently the nose, and aims
+          // dead-center at the T-Rex — no near-misses.
+          const noseRight = dirXRef.current > 0;
+          setLaser({
+            x1: from.x + (noseRight ? HELI_W * 0.675 : HELI_W * 0.325),
+            y1: from.y + HELI_H * 0.6,
+            x2: trex.x + TREX_W / 2,
+            y2: trex.y + TREX_H / 2,
+          });
           await sleep(180);
           if (cancelled) return;
           setLaser(null);
@@ -1500,7 +1155,7 @@ function Helicopter({
             height: HELI_H,
             zIndex: 43,
             pointerEvents: "none",
-            transform: `rotate(${bank}deg)`,
+            transform: `scaleX(${facingRight ? -1 : 1}) rotate(${facingRight ? -bank : bank}deg)`,
           }}
         >
           <HelicopterSprite dark={dark} />
@@ -1509,6 +1164,121 @@ function Helicopter({
     </>
   );
 }
+
+/* ---------- Draw ----------
+   A full-page freehand canvas. Transparent and click-through while
+   inactive so it never blocks the app; when active it captures pointer
+   input and lets the user scribble anywhere on the page. Strokes are
+   kept in a ref (not React state) and replayed on resize, since
+   resizing a canvas element clears its pixel buffer. */
+const DrawingCanvas = forwardRef(function DrawingCanvas({ active, dark }, ref) {
+  const canvasRef = useRef(null);
+  const strokesRef = useRef([]);
+  const currentRef = useRef(null);
+  const drawingRef = useRef(false);
+
+  const strokeStyle = () => (dark ? "#f5f5f5" : "#111111");
+
+  const redraw = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = strokeStyle();
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    strokesRef.current.forEach((stroke) => {
+      if (stroke.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(stroke[0].x, stroke[0].y);
+      for (let i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i].x, stroke[i].y);
+      ctx.stroke();
+    });
+  };
+
+  useImperativeHandle(ref, () => ({
+    clear: () => {
+      strokesRef.current = [];
+      redraw();
+    },
+  }));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+      redraw();
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    redraw();
+  }, [dark]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const point = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const start = (e) => {
+    if (!active) return;
+    canvasRef.current.setPointerCapture(e.pointerId);
+    drawingRef.current = true;
+    currentRef.current = [point(e)];
+  };
+  const move = (e) => {
+    if (!active || !drawingRef.current) return;
+    const pts = currentRef.current;
+    pts.push(point(e));
+    const n = pts.length;
+    if (n < 2) return;
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.strokeStyle = strokeStyle();
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(pts[n - 2].x, pts[n - 2].y);
+    ctx.lineTo(pts[n - 1].x, pts[n - 1].y);
+    ctx.stroke();
+  };
+  const end = () => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    if (currentRef.current && currentRef.current.length > 1) {
+      strokesRef.current.push(currentRef.current);
+    }
+    currentRef.current = null;
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      onPointerDown={start}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerCancel={end}
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100vw",
+        height: "100vh",
+        zIndex: 45,
+        touchAction: "none",
+        pointerEvents: active ? "auto" : "none",
+        cursor: active ? "crosshair" : "default",
+      }}
+    />
+  );
+});
 
 /* ---------- Doodle ---------- */
 
@@ -1656,14 +1426,16 @@ export default function App() {
   const [formOpen, setFormOpen] = useState(false);
   const [motionOn, setMotionOn] = useState(true);
   const [doodleModalOpen, setDoodleModalOpen] = useState(false);
+  const [doodleMenuOpen, setDoodleMenuOpen] = useState(false);
   const [doodle, setDoodle] = useState(null);
+  const [drawMode, setDrawMode] = useState(false);
+  const drawCanvasRef = useRef(null);
   const toastTimeout = useRef(null);
   const headerRef = useRef(null);
   const formBoxRef = useRef(null);
   const searchBoxRef = useRef(null);
   const quizButtonRef = useRef(null);
   const themeButtonRef = useRef(null);
-  const agentPosRef = useRef({ x: -9999, y: -9999 });
   const trexPosRef = useRef({ x: -9999, y: -9999 });
   const heliARef = useRef({ x: -9999, y: -9999 });
   const heliBRef = useRef({ x: -9999, y: -9999 });
@@ -1872,15 +1644,68 @@ export default function App() {
       `}</style>
 
       <div className="page-fade max-w-5xl mx-auto px-6 py-16 md:py-20">
-        {/* Top bar */}
-        <div className="flex justify-between items-center gap-3 mb-8">
-          <button
-            onClick={() => setDoodleModalOpen(true)}
-            className={`flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-full transition-colors duration-200 ${t.pill}`}
-          >
-            <PenLine size={14} />
-            Doodle
-          </button>
+        {/* Top bar — kept above the drawing canvas (z-45) so it's always clickable */}
+        <div className="relative z-50 flex justify-between items-center gap-3 mb-8">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                onClick={() => setDoodleMenuOpen((o) => !o)}
+                className={`flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-full transition-colors duration-200 ${
+                  drawMode ? t.pillActive : t.pill
+                }`}
+              >
+                <PenLine size={14} />
+                Doodle
+                <ChevronDown size={13} className={`transition-transform duration-200 ${doodleMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {doodleMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setDoodleMenuOpen(false)} />
+                  <div
+                    className={`absolute left-0 top-full mt-2 z-20 min-w-[10rem] rounded-xl shadow-lg overflow-hidden ${
+                      t.dark ? "bg-neutral-800 border border-neutral-700" : "bg-white border border-neutral-200"
+                    }`}
+                  >
+                    <button
+                      onClick={() => {
+                        setDoodleModalOpen(true);
+                        setDoodleMenuOpen(false);
+                      }}
+                      className={`block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${
+                        t.dark ? "text-neutral-100 hover:bg-neutral-700" : "text-neutral-900 hover:bg-neutral-100"
+                      }`}
+                    >
+                      Prompt
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDrawMode((d) => !d);
+                        setDoodleMenuOpen(false);
+                      }}
+                      className={`block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${
+                        t.dark ? "text-neutral-100 hover:bg-neutral-700" : "text-neutral-900 hover:bg-neutral-100"
+                      }`}
+                    >
+                      {drawMode ? "Stop drawing" : "Draw"}
+                    </button>
+                    {drawMode && (
+                      <button
+                        onClick={() => {
+                          drawCanvasRef.current?.clear();
+                          setDoodleMenuOpen(false);
+                        }}
+                        className={`block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${
+                          t.dark ? "text-neutral-100 hover:bg-neutral-700" : "text-neutral-900 hover:bg-neutral-100"
+                        }`}
+                      >
+                        Clear drawing
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <div className="relative">
               <button
@@ -2010,17 +1835,17 @@ export default function App() {
         />
       )}
       {doodle && <DoodleDisplay doodle={doodle} theme={theme} onClose={() => setDoodle(null)} />}
+      <DrawingCanvas ref={drawCanvasRef} active={drawMode} dark={t.dark} />
       {motionOn && (
         <>
-          <RunningAgent
+          <TRexPet
             formBoxRef={formBoxRef}
-            searchBoxRef={searchBoxRef}
-            quizButtonRef={quizButtonRef}
-            themeButtonRef={themeButtonRef}
+            positionRef={trexPosRef}
             theme={theme}
-            positionRef={agentPosRef}
+            heliARef={heliARef}
+            heliBRef={heliBRef}
+            headerRef={headerRef}
           />
-          <TRexPet formBoxRef={formBoxRef} positionRef={trexPosRef} theme={theme} />
           <Helicopter
             theme={theme}
             formBoxRef={formBoxRef}
