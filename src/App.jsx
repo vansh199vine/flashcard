@@ -1450,6 +1450,48 @@ function DoodleDisplay({ doodle, onClose }) {
   );
 }
 
+/* ---------- Banner ----------
+   A yellow caution-tape strip across the very top of the page — full
+   width, outside the centered content column, so it can never end up
+   over the title. Cycles slowly through a definition of "marginalia"
+   and a few instructions written in the same antiquarian, marginal-note
+   voice, one at a time, long enough to actually read. */
+const BANNER_MESSAGES = [
+  "MARGINALIA (n.) — notes, marks, and doodles set down in the margin of a page; the reader's quiet dialogue with the text.",
+  "To conjure a familiar of thine own devising: seek Doodle → Prompt, and speak its form into being.",
+  "Wouldst thou leave a mark by hand instead? Doodle → Draw grants thee the page itself as parchment.",
+  "The pause sigil (⏸) stills every creature roaming these margins; press it again to wake them.",
+  "When thy accumulated knowledge is ready to be examined, summon the Quiz above.",
+];
+
+function MarginaliaBanner({ theme }) {
+  const dark = theme === "dark";
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+    const id = setInterval(() => setIndex((i) => (i + 1) % BANNER_MESSAGES.length), 7000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div
+      className={`w-full border-y-2 border-dashed ${
+        dark ? "border-yellow-200/40 bg-yellow-500/20" : "border-black/60 bg-yellow-300"
+      } px-4 py-2 overflow-hidden`}
+    >
+      <p
+        key={index}
+        className={`banner-fade text-center text-xs sm:text-sm italic font-serif tracking-wide truncate ${
+          dark ? "text-yellow-100" : "text-black/80"
+        }`}
+      >
+        {BANNER_MESSAGES[index]}
+      </p>
+    </div>
+  );
+}
+
 /* ---------- Root app ---------- */
 
 export default function App() {
@@ -1634,10 +1676,17 @@ export default function App() {
           50% { opacity: 0.7; transform: scaleX(0.85); }
         }
         .trex-flicker { animation: trexFlicker 0.12s steps(1) infinite; transform-origin: 24px 4px; }
+        @keyframes bannerFade {
+          from { opacity: 0; transform: translateY(3px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .banner-fade { animation: bannerFade 0.6s ease-out; }
         @media (prefers-reduced-motion: reduce) {
-          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker { animation: none; }
+          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker, .banner-fade { animation: none; }
         }
       `}</style>
+
+      <MarginaliaBanner theme={theme} />
 
       <div className="page-fade max-w-5xl mx-auto px-6 py-16 md:py-20">
         {/* Top bar — kept above the drawing canvas (z-45) so it's always clickable */}
