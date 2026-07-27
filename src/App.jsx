@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Search, Moon, Sun, MoreVertical, Check, Bold, Italic, Underline, Highlighter, Trash2, X, Shuffle, Plus, ChevronDown, PauseCircle, PlayCircle } from "lucide-react";
+import { Search, Moon, Sun, MoreVertical, Check, Bold, Italic, Underline, Highlighter, Trash2, X, Shuffle, Plus, ChevronDown, PauseCircle, PlayCircle, PenLine } from "lucide-react";
 
 /* ------------------------------------------------------------------
    Flashcard Creator
@@ -1510,6 +1510,111 @@ function Helicopter({
   );
 }
 
+/* ---------- Doodle ---------- */
+
+// Keyword -> action, checked in order so more specific words win over
+// vaguer ones. Anything unmatched still gets a small idle bob, so the
+// doodle always does *something*.
+const DOODLE_ACTIONS = [
+  { action: "spin", keywords: ["spin", "twirl", "rotate", "circle"] },
+  { action: "jump", keywords: ["jump", "hop", "bounce", "leap"] },
+  { action: "dance", keywords: ["dance", "boogie", "groove", "party"] },
+  { action: "wave", keywords: ["wave", "hello", "hi", "greet"] },
+  { action: "walk", keywords: ["walk", "run", "pace", "stroll", "move"] },
+  { action: "sleep", keywords: ["sleep", "nap", "rest", "tired", "snooze"] },
+  { action: "shake", keywords: ["shake", "wiggle", "vibrate", "shiver"] },
+];
+
+function matchDoodleAction(text) {
+  const q = text.toLowerCase();
+  for (const { action, keywords } of DOODLE_ACTIONS) {
+    if (keywords.some((k) => q.includes(k))) return action;
+  }
+  return "bob";
+}
+
+function DoodleModal({ theme, onSubmit, onClose }) {
+  const t = useTokens(theme);
+  const [text, setText] = useState("");
+  const overlayBg = theme === "dark" ? "bg-black/80" : "bg-black/40";
+  const border = theme === "dark" ? "border-neutral-800" : "border-neutral-200";
+
+  const submit = () => {
+    if (!text.trim()) return;
+    onSubmit(text.trim());
+  };
+
+  return (
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-6 ${overlayBg}`} onClick={onClose}>
+      <div className={`w-full max-w-sm rounded-3xl p-6 ${t.page} border ${border}`} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className={`text-sm font-semibold ${t.body}`}>What should the doodle do?</h3>
+          <button onClick={onClose} aria-label="Close" className={`rounded-full p-2 transition-colors duration-200 ${t.iconMuted}`}>
+            <X size={15} />
+          </button>
+        </div>
+        <Input
+          theme={theme}
+          autoFocus
+          placeholder="e.g. dance, jump, wave, spin..."
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+        />
+        <div className="flex justify-end mt-4">
+          <Button theme={theme} onClick={submit} className="rounded-xl px-5 py-2.5 text-sm">
+            Doodle it
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DoodleSprite({ action, dark }) {
+  const ink = dark ? "#f5f5f5" : "#111111";
+  const bodyClass =
+    {
+      jump: "doodle-jump",
+      spin: "doodle-spin",
+      dance: "doodle-dance",
+      walk: "doodle-walk",
+      shake: "doodle-shake",
+      sleep: "doodle-sleep",
+    }[action] || "doodle-bob";
+
+  return (
+    <svg viewBox="0 0 40 60" width="40" height="60" style={{ overflow: "visible" }} className={bodyClass}>
+      <circle cx="20" cy="10" r="7" fill="none" stroke={ink} strokeWidth="2.2" />
+      <line x1="20" y1="17" x2="20" y2="38" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+      <line x1="20" y1="38" x2="12" y2="55" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+      <line x1="20" y1="38" x2="28" y2="55" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+      <line x1="20" y1="22" x2="9" y2="30" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+      <g transform="translate(20 22)" style={{ transformOrigin: "0px 0px" }} className={action === "wave" ? "doodle-wave-arm" : ""}>
+        <line x1="0" y1="0" x2="11" y2={action === "wave" ? -10 : 8} stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
+function DoodleDisplay({ doodle, theme, onClose }) {
+  const t = useTokens(theme);
+  return (
+    <div className="fixed top-24 left-6 z-40 flex flex-col items-center gap-1.5" style={{ pointerEvents: "none" }}>
+      <DoodleSprite action={doodle.action} dark={t.dark} />
+      <div
+        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${t.card}`}
+        style={{ pointerEvents: "auto" }}
+      >
+        <span className={t.muted}>{doodle.text}</span>
+        <button onClick={onClose} aria-label="Dismiss doodle" className="opacity-60 hover:opacity-100">
+          <X size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Root app ---------- */
 
 export default function App() {
@@ -1524,6 +1629,8 @@ export default function App() {
   const [quizMenuOpen, setQuizMenuOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [motionOn, setMotionOn] = useState(true);
+  const [doodleModalOpen, setDoodleModalOpen] = useState(false);
+  const [doodle, setDoodle] = useState(null);
   const toastTimeout = useRef(null);
   const headerRef = useRef(null);
   const formBoxRef = useRef(null);
@@ -1690,75 +1797,127 @@ export default function App() {
           50% { opacity: 0.7; transform: scaleX(0.85); }
         }
         .trex-flicker { animation: trexFlicker 0.12s steps(1) infinite; transform-origin: 24px 4px; }
+        @keyframes doodleBob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+        }
+        @keyframes doodleJump {
+          0%, 100% { transform: translateY(0); }
+          35% { transform: translateY(-20px); }
+          55% { transform: translateY(-20px); }
+        }
+        @keyframes doodleSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes doodleDance {
+          0%, 100% { transform: rotate(-9deg) translateX(-3px); }
+          50% { transform: rotate(9deg) translateX(3px); }
+        }
+        @keyframes doodleWalk {
+          0%, 100% { transform: translateX(-10px); }
+          50% { transform: translateX(10px); }
+        }
+        @keyframes doodleShake {
+          0%, 100% { transform: translateX(0) rotate(0deg); }
+          25% { transform: translateX(-4px) rotate(-4deg); }
+          75% { transform: translateX(4px) rotate(4deg); }
+        }
+        @keyframes doodleSleep {
+          0%, 100% { transform: rotate(-82deg) scaleY(1); }
+          50% { transform: rotate(-82deg) scaleY(1.03); }
+        }
+        @keyframes doodleWave {
+          0%, 100% { transform: rotate(0deg); }
+          50% { transform: rotate(-55deg); }
+        }
+        .doodle-bob { animation: doodleBob 1.6s ease-in-out infinite; }
+        .doodle-jump { animation: doodleJump 0.9s ease-in-out infinite; }
+        .doodle-spin { animation: doodleSpin 1.1s linear infinite; }
+        .doodle-dance { animation: doodleDance 0.7s ease-in-out infinite; }
+        .doodle-walk { animation: doodleWalk 1.4s ease-in-out infinite; }
+        .doodle-shake { animation: doodleShake 0.35s ease-in-out infinite; }
+        .doodle-sleep { animation: doodleSleep 2.4s ease-in-out infinite; transform-origin: 50% 100%; }
+        .doodle-wave-arm { animation: doodleWave 0.6s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) {
-          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker { animation: none; }
+          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker,
+          .doodle-bob, .doodle-jump, .doodle-spin, .doodle-dance, .doodle-walk, .doodle-shake, .doodle-sleep, .doodle-wave-arm { animation: none; }
         }
       `}</style>
 
       <div className="page-fade max-w-5xl mx-auto px-6 py-16 md:py-20">
         {/* Top bar */}
-        <div className="flex justify-end items-center gap-3 mb-8">
-          <div className="relative">
-            <button
-              ref={quizButtonRef}
-              onClick={() => setQuizMenuOpen((o) => !o)}
-              className={`flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-full transition-colors duration-200 ${t.pill}`}
-            >
-              <Shuffle size={14} />
-              Quiz
-              <ChevronDown size={13} className={`transition-transform duration-200 ${quizMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-            {quizMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setQuizMenuOpen(false)} />
-                <div
-                  className={`absolute right-0 top-full mt-2 z-20 min-w-[10rem] rounded-xl shadow-lg overflow-hidden ${
-                    t.dark ? "bg-neutral-800 border border-neutral-700" : "bg-white border border-neutral-200"
-                  }`}
-                >
-                  <button
-                    onClick={() => handleStartQuiz("All")}
-                    className={`block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${
-                      t.dark ? "text-neutral-100 hover:bg-neutral-700" : "text-neutral-900 hover:bg-neutral-100"
+        <div className="flex justify-between items-center gap-3 mb-8">
+          <button
+            onClick={() => setDoodleModalOpen(true)}
+            className={`flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-full transition-colors duration-200 ${t.pill}`}
+          >
+            <PenLine size={14} />
+            Doodle
+          </button>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                ref={quizButtonRef}
+                onClick={() => setQuizMenuOpen((o) => !o)}
+                className={`flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-full transition-colors duration-200 ${t.pill}`}
+              >
+                <Shuffle size={14} />
+                Quiz
+                <ChevronDown size={13} className={`transition-transform duration-200 ${quizMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {quizMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setQuizMenuOpen(false)} />
+                  <div
+                    className={`absolute right-0 top-full mt-2 z-20 min-w-[10rem] rounded-xl shadow-lg overflow-hidden ${
+                      t.dark ? "bg-neutral-800 border border-neutral-700" : "bg-white border border-neutral-200"
                     }`}
                   >
-                    All flashcards
-                  </button>
-                  {filters.map((f) => (
                     <button
-                      key={f}
-                      onClick={() => handleStartQuiz(f)}
+                      onClick={() => handleStartQuiz("All")}
                       className={`block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${
                         t.dark ? "text-neutral-100 hover:bg-neutral-700" : "text-neutral-900 hover:bg-neutral-100"
                       }`}
                     >
-                      {f}
+                      All flashcards
                     </button>
-                  ))}
-                </div>
-              </>
-            )}
+                    {filters.map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => handleStartQuiz(f)}
+                        className={`block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${
+                          t.dark ? "text-neutral-100 hover:bg-neutral-700" : "text-neutral-900 hover:bg-neutral-100"
+                        }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => setMotionOn((m) => !m)}
+              aria-label={motionOn ? "Pause animations" : "Resume animations"}
+              title={motionOn ? "Pause animations" : "Resume animations"}
+              className={`rounded-full p-2.5 transition-colors duration-200 ${t.card}`}
+            >
+              {motionOn ? (
+                <PauseCircle size={16} className={t.dark ? "text-neutral-400" : "text-neutral-500"} />
+              ) : (
+                <PlayCircle size={16} className={t.dark ? "text-neutral-400" : "text-neutral-500"} />
+              )}
+            </button>
+            <button
+              ref={themeButtonRef}
+              onClick={() => setTheme(t.dark ? "light" : "dark")}
+              aria-label="Toggle theme"
+              className={`rounded-full p-2.5 transition-colors duration-200 ${t.card}`}
+            >
+              {t.dark ? <Sun size={16} className="text-neutral-400" /> : <Moon size={16} className="text-neutral-500" />}
+            </button>
           </div>
-          <button
-            onClick={() => setMotionOn((m) => !m)}
-            aria-label={motionOn ? "Pause animations" : "Resume animations"}
-            title={motionOn ? "Pause animations" : "Resume animations"}
-            className={`rounded-full p-2.5 transition-colors duration-200 ${t.card}`}
-          >
-            {motionOn ? (
-              <PauseCircle size={16} className={t.dark ? "text-neutral-400" : "text-neutral-500"} />
-            ) : (
-              <PlayCircle size={16} className={t.dark ? "text-neutral-400" : "text-neutral-500"} />
-            )}
-          </button>
-          <button
-            ref={themeButtonRef}
-            onClick={() => setTheme(t.dark ? "light" : "dark")}
-            aria-label="Toggle theme"
-            className={`rounded-full p-2.5 transition-colors duration-200 ${t.card}`}
-          >
-            {t.dark ? <Sun size={16} className="text-neutral-400" /> : <Moon size={16} className="text-neutral-500" />}
-          </button>
         </div>
 
         {/* Header */}
@@ -1814,6 +1973,17 @@ export default function App() {
       {showQuiz && (
         <QuizModal cards={cardsForScope(quizScope)} scopeLabel={quizScope} theme={theme} onClose={() => setShowQuiz(false)} />
       )}
+      {doodleModalOpen && (
+        <DoodleModal
+          theme={theme}
+          onClose={() => setDoodleModalOpen(false)}
+          onSubmit={(text) => {
+            setDoodle({ action: matchDoodleAction(text), text });
+            setDoodleModalOpen(false);
+          }}
+        />
+      )}
+      {doodle && <DoodleDisplay doodle={doodle} theme={theme} onClose={() => setDoodle(null)} />}
       {motionOn && (
         <>
           <RunningAgent
