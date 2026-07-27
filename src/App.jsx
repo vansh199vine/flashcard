@@ -1230,121 +1230,6 @@ function TRexPet({ formBoxRef, positionRef, theme }) {
   );
 }
 
-/* A dense ribbon of short grass sitting right along the top edge of
-   whatever it's placed above (the "New flashcard" box) — layered
-   short/soft blades behind taller/fuller ones for volume, half tucked
-   behind the box so it reads as actually growing out of it. */
-function FoliageStrip({ dark, className = "" }) {
-  const color = dark ? "#f5f5f5" : "#111111";
-  const baseY = 26;
-  const W = 400;
-  const seeded = (i, mod) => (((i * 9301 + 49297) % 233280) / 233280) * mod;
-
-  // Three layers, back-to-front, short and dense rather than tall and
-  // sparse, for volume without height.
-  const backBlades = Array.from({ length: 70 }, (_, i) => ({
-    x: (i / 69) * W + seeded(i, 6) - 3,
-    h: 3 + seeded(i + 137, 5),
-    tilt: seeded(i + 271, 12) - 6,
-  }));
-  const midBlades = Array.from({ length: 60 }, (_, i) => ({
-    x: (i / 59) * W + seeded(i + 900, 6) - 3,
-    h: 5 + seeded(i + 233, 6),
-    tilt: seeded(i + 377, 14) - 7,
-  }));
-  const frontBlades = Array.from({ length: 55 }, (_, i) => ({
-    x: (i / 54) * W + seeded(i + 311, 7) - 3.5,
-    h: 7 + seeded(i + 419, 8),
-    tilt: seeded(i + 523, 16) - 8,
-  }));
-  return (
-    <div className={`foliage-strip ${className}`} aria-hidden="true">
-      <svg viewBox={`0 0 ${W} 34`} width="100%" height="34" preserveAspectRatio="none">
-        {/* A dashed ground line instead of a solid bar, so it blends
-            with the dashed border of the box it sits on. */}
-        <line x1="0" y1={baseY + 1} x2={W} y2={baseY + 1} stroke={color} strokeWidth="1.5" strokeDasharray="6 5" strokeOpacity="0.75" />
-        {backBlades.map((b, i) => (
-          <path
-            key={`b${i}`}
-            d={`M${b.x},${baseY} q${b.tilt / 2},${-b.h / 2} ${b.tilt},${-b.h}`}
-            stroke={color}
-            strokeOpacity="0.4"
-            strokeWidth="1.2"
-            fill="none"
-            strokeLinecap="round"
-          />
-        ))}
-        {midBlades.map((b, i) => (
-          <path
-            key={`m${i}`}
-            d={`M${b.x},${baseY} q${b.tilt / 2},${-b.h / 2} ${b.tilt},${-b.h}`}
-            stroke={color}
-            strokeOpacity="0.7"
-            strokeWidth="1.5"
-            fill="none"
-            strokeLinecap="round"
-          />
-        ))}
-        {frontBlades.map((b, i) => (
-          <path
-            key={`f${i}`}
-            d={`M${b.x},${baseY} q${b.tilt / 2},${-b.h / 2} ${b.tilt},${-b.h}`}
-            stroke={color}
-            strokeWidth="1.9"
-            fill="none"
-            strokeLinecap="round"
-          />
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-/* Positions the tree line + foliage garland precisely against the
-   real, live top edge of the form box (measured, not guessed), so
-   they always read as connected to it regardless of viewport size or
-   whether the form is open or collapsed. */
-function Scenery({ formBoxRef, dark }) {
-  const [rect, setRect] = useState(null);
-
-  useEffect(() => {
-    const measure = () => {
-      const el = formBoxRef.current;
-      if (el) setRect(el.getBoundingClientRect());
-    };
-    measure();
-    window.addEventListener("scroll", measure, { passive: true });
-    window.addEventListener("resize", measure);
-    const id = setInterval(measure, 400);
-    return () => {
-      window.removeEventListener("scroll", measure);
-      window.removeEventListener("resize", measure);
-      clearInterval(id);
-    };
-  }, [formBoxRef]);
-
-  if (!rect) return null;
-  const baseline = rect.top;
-
-  return (
-    <div aria-hidden="true">
-      <div
-        style={{
-          position: "fixed",
-          left: rect.left,
-          top: baseline - 18,
-          width: rect.width,
-          height: 34,
-          zIndex: -1,
-          pointerEvents: "none",
-        }}
-      >
-        <FoliageStrip dark={dark} />
-      </div>
-    </div>
-  );
-}
-
 /* A helicopter that shows up out of nowhere every so often, cuts an
    irregular path across the top-left of the screen, and leaves a
    dashed flight trail that fades out behind it. */
@@ -1882,8 +1767,7 @@ export default function App() {
           <p className={`mt-3 text-sm ${t.subtitle}`}>Organize your knowledge.</p>
         </div>
 
-        {/* Form — the tree line + foliage garland (Scenery, rendered at
-            the bottom of the page) are pinned to this box's live top edge */}
+        {/* Form */}
         <div ref={formBoxRef} className="max-w-xl mx-auto mb-14">
           {formOpen ? (
             <div className="flashcard-enter">
@@ -1930,7 +1814,6 @@ export default function App() {
       {showQuiz && (
         <QuizModal cards={cardsForScope(quizScope)} scopeLabel={quizScope} theme={theme} onClose={() => setShowQuiz(false)} />
       )}
-      <Scenery formBoxRef={formBoxRef} dark={t.dark} />
       {motionOn && (
         <>
           <RunningAgent
