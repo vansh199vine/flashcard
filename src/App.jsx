@@ -1454,14 +1454,14 @@ function DoodleDisplay({ doodle, onClose }) {
    A yellow caution-tape strip across the very top of the page — full
    width, outside the centered content column, so it can never end up
    over the title. Cycles slowly through a definition of "marginalia"
-   and a few instructions written in the same antiquarian, marginal-note
-   voice, one at a time, long enough to actually read. */
+   and a few plain-English tips, sliding in from alternating sides each
+   time so it reads as a continuous side-to-side loop. */
 const BANNER_MESSAGES = [
-  "MARGINALIA (n.) — notes, marks, and doodles set down in the margin of a page; the reader's quiet dialogue with the text.",
-  "To conjure a familiar of thine own devising: seek Doodle → Prompt, and speak its form into being.",
-  "Wouldst thou leave a mark by hand instead? Doodle → Draw grants thee the page itself as parchment.",
-  "The pause sigil (⏸) stills every creature roaming these margins; press it again to wake them.",
-  "When thy accumulated knowledge is ready to be examined, summon the Quiz above.",
+  "Marginalia: notes and doodles written in the margin of a page.",
+  "Click + New flashcard to create your first flashcard.",
+  "Click Doodle → Draw to draw freehand anywhere on the page.",
+  "Click the pause button to stop all the moving characters.",
+  "Click Quiz to test yourself on your flashcards.",
 ];
 
 function MarginaliaBanner({ theme }) {
@@ -1474,15 +1474,13 @@ function MarginaliaBanner({ theme }) {
     return () => clearInterval(id);
   }, []);
 
+  const fromRight = index % 2 === 0;
+
   return (
-    <div
-      className={`w-full border-y-2 border-dashed ${
-        dark ? "border-yellow-200/40 bg-yellow-500/20" : "border-black/60 bg-yellow-300"
-      } px-4 py-2 overflow-hidden`}
-    >
+    <div className={`w-full ${dark ? "bg-yellow-500/20" : "bg-yellow-300"} px-4 py-2 overflow-hidden`}>
       <p
         key={index}
-        className={`banner-fade text-center text-xs sm:text-sm italic font-serif tracking-wide truncate ${
+        className={`${fromRight ? "banner-slide-right" : "banner-slide-left"} text-center text-sm font-bold truncate ${
           dark ? "text-yellow-100" : "text-black/80"
         }`}
       >
@@ -1676,13 +1674,19 @@ export default function App() {
           50% { opacity: 0.7; transform: scaleX(0.85); }
         }
         .trex-flicker { animation: trexFlicker 0.12s steps(1) infinite; transform-origin: 24px 4px; }
-        @keyframes bannerFade {
-          from { opacity: 0; transform: translateY(3px); }
-          to { opacity: 1; transform: translateY(0); }
+        @keyframes bannerSlideFromRight {
+          from { opacity: 0; transform: translateX(50px); }
+          to { opacity: 1; transform: translateX(0); }
         }
-        .banner-fade { animation: bannerFade 0.6s ease-out; }
+        @keyframes bannerSlideFromLeft {
+          from { opacity: 0; transform: translateX(-50px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        .banner-slide-right { animation: bannerSlideFromRight 0.7s ease-out; }
+        .banner-slide-left { animation: bannerSlideFromLeft 0.7s ease-out; }
         @media (prefers-reduced-motion: reduce) {
-          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker, .banner-fade { animation: none; }
+          .page-fade, .flashcard-enter, .toast-enter, .tree-sway, .trex-flicker,
+          .banner-slide-right, .banner-slide-left { animation: none; }
         }
       `}</style>
 
